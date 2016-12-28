@@ -12,12 +12,12 @@ Statistical analysis of F0/Intensity Manipulation politeness studies
 -	dplyr
 -	lme4
 
-## Script files contained in this analysis:
+## Script files:
 
 -	**analysis.R**<br>
 	Contains analyses of all three experiments
 
-## Data files contained in this analysis:
+## Data files:
 
 1.	**E1_f0_konkuk.csv**<br>
 	Data from experiment 1, f0 manipulation, straight from E-Prime
