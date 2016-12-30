@@ -15,7 +15,6 @@ options(stringsAsFactors = F)
 library(dplyr)
 library(lme4)
 library(stringr)
-library(party)
 
 ## Load in data:
 
@@ -168,6 +167,34 @@ both <- cbind(both,
 both.UO <- cbind(both,
 	select(prod.both[match(both$File, prod.both$filename), ], dur:HNR))
 
+## Z-score acoustic variables within speaker:
+
+zscore <- function(x) (x - mean(x)) / sd(x)
+vars <- c('f0mn', 'inmn', 'f0sd', 'inrange',
+	'jitter', 'shimmer', 'HNR', 'H1H2', 'dur')
+for (i in 1:length(objs)) {
+	this_df <- get(objs[i])
+	for (j in 1:length(vars)) {
+		this_var <- vars[j]
+		this_var_z <- paste0(this_var, '_z')
+		df <- data.frame(x = rep(NA, nrow(this_df)))
+		colnames(df) <- this_var_z
+		this_df <- cbind(this_df, df)
+		speakers <- unique(this_df$Speaker)
+		for (k in 1:length(unique(this_df$Speaker))) {
+			speaker_ids <- this_df$Speaker == speakers[k]
+			this_df[speaker_ids, this_var_z] <- zscore(this_df[speaker_ids, this_var])
+			}
+		}
+	assign(objs[i], this_df)
+	}
+
+## Write objects with z-scores to data frames:
+
+write.table(f0, 'f0_z.csv', sep = ',', row.names = F)
+write.table(int, 'int_z.csv', sep = ',', row.names = F)
+write.table(both, 'both_z.csv', sep = ',', row.names = F)
+
 
 
 ##------------------------------------------------------------------
@@ -208,8 +235,7 @@ summary(f0.x3 <- glmer(Resp ~ F0_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:F0_c + SpeakerSex_c:F0_c +
 	ListenerSex_c:SpeakerSex_c:F0_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + F0_c|Listener) + (1 + F0_c|Speaker) + (1|Item),
 	data = f0, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -219,8 +245,7 @@ summary(f0.no3 <- glmer(Resp ~ F0_c +
 	LogRT_c + Trial_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:F0_c + SpeakerSex_c:F0_c +
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + F0_c|Listener) + (1 + F0_c|Speaker) + (1|Item),
 	data = f0, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -234,16 +259,14 @@ summary(f0.no2A <- glmer(Resp ~ F0_c +
 	LogRT_c + Trial_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:F0_c + 		# omit SpeakerSex_c:F0_c
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + F0_c|Listener) + (1 + F0_c|Speaker) + (1|Item),
 	data = f0, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 summary(f0.no2B <- glmer(Resp ~ F0_c + 
 	LogRT_c + Trial_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	SpeakerSex_c:F0_c +			# omit ListenerSex_c:F0_c
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + F0_c|Listener) + (1 + F0_c|Speaker) + (1|Item),
 	data = f0, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -252,37 +275,46 @@ summary(f0.no2B <- glmer(Resp ~ F0_c +
 anova(f0.no2A, f0.no3, test = 'Chisq')
 anova(f0.no2B, f0.no3, test = 'Chisq')
 
-## Main model:
+## Main model with trial (causes convergence issues):
 
-summary(f0.mdl <- glmer(Resp ~ F0_c + 
+summary(f0.withtrial <- glmer(Resp ~ F0_c + 
 	LogRT_c + Trial_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + F0_c|Listener) + (1 + F0_c|Speaker) + (1|Item),
 	data = f0, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
+
+## Main model without trial:
+
+summary(f0.mdl <- glmer(Resp ~ F0_c + 
+	LogRT_c + 
+	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
+	(1 + F0_c|Listener) + (1 + F0_c|Speaker) + (1|Item),
+	data = f0, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+
+## Test trial effect:
+
+anova(f0.mdl, f0.withtrial, test = 'Chisq')
 
 ## Reduced models:
 
 summary(f0.noint <- glmer(Resp ~ F0_c + 
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	ListenerSex_c + SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + F0_c|Listener) + (1 + F0_c|Speaker) + (1|Item),
 	data = f0, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 summary(f0.nolist <- glmer(Resp ~ F0_c + 
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + F0_c|Listener) + (1 + F0_c|Speaker) + (1|Item),
 	data = f0, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 summary(f0.nospeak <- glmer(Resp ~ F0_c + 
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	ListenerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + F0_c|Listener) + (1 + F0_c|Speaker) + (1|Item),
 	data = f0, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -295,10 +327,9 @@ anova(f0.nolist, f0.noint, test = 'Chisq')
 ## Reduced model without F0:
 
 summary(f0.null <- glmer(Resp ~ 1 +
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + F0_c|Listener) + (1 + F0_c|Speaker) + (1|Item),
 	data = f0, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -306,24 +337,11 @@ summary(f0.null <- glmer(Resp ~ 1 +
 
 anova(f0.null, f0.mdl, test = 'Chisq')
 
-## Test of trial effect:
-
-summary(f0.notrial <- glmer(Resp ~ F0_c + 
-	LogRT_c + 
-	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
-	data = f0, family = 'binomial',
-	control = glmerControl(optimizer = 'bobyqa')))
-anova(f0.notrial, f0.mdl, test = 'Chisq')
-
 ## Test of RT effect:
 
 summary(f0.nort <- glmer(Resp ~ F0_c + 
-	Trial_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + F0_c|Listener) + (1 + F0_c|Speaker) + (1|Item),
 	data = f0, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 anova(f0.nort, f0.mdl, test = 'Chisq')
@@ -331,11 +349,10 @@ anova(f0.nort, f0.mdl, test = 'Chisq')
 ## Test RT interaction (motivated by Brown et al., 2014 results):
 
 summary(f0.rtinteract <- glmer(Resp ~ F0_c + 
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	F0_c:LogRT_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + F0_c|Listener) + (1 + F0_c|Speaker) + (1|Item),
 	data = f0, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 anova(f0.mdl, f0.rtinteract, test = 'Chisq')
@@ -343,20 +360,48 @@ anova(f0.mdl, f0.rtinteract, test = 'Chisq')
 ## SANITY CHECK: Main model, categorical:
 
 summary(f0.cat <- glmer(Resp ~ F0Level + 
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + F0Level|Listener) + (0 + F0Level|Speaker),
+	(1 + F0Level|Listener) + (1 + F0Level|Speaker) + (1|Item),
 	data = f0, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 summary(f0.cat.null <- glmer(Resp ~ 1 + 
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + F0Level|Listener) + (0 + F0Level|Speaker),
+	(1 + F0Level|Listener) + (1 + F0Level|Speaker) + (1|Item),
 	data = f0, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 anova(f0.cat.null, f0.cat, test = 'Chisq')
+
+## Look at model without slopes:
+
+summary(f0.nolistenerslope <- glmer(Resp ~ F0_c + 
+	LogRT_c +
+	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
+	(1|Listener) + (1 + F0_c|Speaker) + (1|Item),
+	data = f0, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+summary(f0.nospeakerslope <- glmer(Resp ~ F0_c + 
+	LogRT_c +
+	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
+	(1 + F0_c|Listener) + (1|Speaker) + (1|Item),
+	data = f0, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+
+## Compare:
+
+anova(f0.nolistenerslope, f0.mdl, test = 'Chisq')
+anova(f0.nospeakerslope, f0.mdl, test = 'Chisq')
+
+## Look at listener coefficients:
+
+coef(f0.mdl)$Listener[ , 'F0_c']
+sum(coef(f0.mdl)$Listener[ , 'F0_c'] > 0)
+sum(coef(f0.mdl)$Listener[ , 'F0_c'] < 0)
+
+## Save models:
+
+save.image('models_so_far.RData')
 
 
 
@@ -398,8 +443,7 @@ summary(int.x3 <- glmer(Resp ~ int_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:int_c + SpeakerSex_c:int_c +
 	ListenerSex_c:SpeakerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker),
+	(1 + int_c|Listener) + (1 + int_c|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -409,8 +453,7 @@ summary(int.no3 <- glmer(Resp ~ int_c +
 	LogRT_c + Trial_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:int_c + SpeakerSex_c:int_c +
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker),
+	(1 + int_c|Listener) + (1 + int_c|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -424,16 +467,14 @@ summary(int.no2A <- glmer(Resp ~ int_c +
 	LogRT_c + Trial_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:int_c + 		# omit SpeakerSex_c:int_c
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker),
+	(1 + int_c|Listener) + (1 + int_c|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 summary(int.no2B <- glmer(Resp ~ int_c + 
 	LogRT_c + Trial_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	SpeakerSex_c:int_c +			# omit ListenerSex_c:int_c
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker),
+	(1 + int_c|Listener) + (1 + int_c|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -442,37 +483,46 @@ summary(int.no2B <- glmer(Resp ~ int_c +
 anova(int.no2A, int.no3, test = 'Chisq')
 anova(int.no2B, int.no3, test = 'Chisq')
 
-## Main model:
+## Main model with trial:
 
-summary(int.mdl <- glmer(Resp ~ int_c + 
+summary(int.withtrial <- glmer(Resp ~ int_c + 
 	LogRT_c + Trial_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker),
+	(1 + int_c|Listener) + (1 + int_c|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
+
+## Main model without trial:
+
+summary(int.mdl <- glmer(Resp ~ int_c + 
+	LogRT_c + 
+	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
+	(1 + int_c|Listener) + (1 + int_c|Speaker) + (1|Item),
+	data = int, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+
+## Test trial effect:
+
+anova(int.mdl, int.withtrial, test = 'Chisq')
 
 ## Reduced models:
 
 summary(int.noint <- glmer(Resp ~ int_c + 
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	ListenerSex_c + SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker),
+	(1 + int_c|Listener) + (1 + int_c|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 summary(int.nolist <- glmer(Resp ~ int_c + 
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker),
+	(1 + int_c|Listener) + (1 + int_c|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 summary(int.nospeak <- glmer(Resp ~ int_c + 
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	ListenerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker),
+	(1 + int_c|Listener) + (1 + int_c|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -485,10 +535,9 @@ anova(int.nolist, int.noint, test = 'Chisq')
 ## Reduced model without int:
 
 summary(int.null <- glmer(Resp ~ 1 +
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker),
+	(1 + int_c|Listener) + (1 + int_c|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -496,24 +545,11 @@ summary(int.null <- glmer(Resp ~ 1 +
 
 anova(int.null, int.mdl, test = 'Chisq')
 
-## Test of trial effect:
-
-summary(int.notrial <- glmer(Resp ~ int_c + 
-	LogRT_c + 
-	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker),
-	data = int, family = 'binomial',
-	control = glmerControl(optimizer = 'bobyqa')))
-anova(int.notrial, int.mdl, test = 'Chisq')
-
 ## Test of RT effect:
 
 summary(int.nort <- glmer(Resp ~ int_c + 
-	Trial_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker),
+	(1 + int_c|Listener) + (1 + int_c|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 anova(int.nort, int.mdl, test = 'Chisq')
@@ -521,11 +557,10 @@ anova(int.nort, int.mdl, test = 'Chisq')
 ## Test RT interaction (motivated by Brown et al. 2014 results):
 
 summary(int.rtinteract <- glmer(Resp ~ int_c + 
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	int_c:LogRT_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker),
+	(1 + int_c|Listener) + (1 + int_c|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 anova(int.mdl, int.rtinteract, test = 'Chisq')
@@ -533,20 +568,48 @@ anova(int.mdl, int.rtinteract, test = 'Chisq')
 ## SANITY CHECK: Main model, categorical:
 
 summary(int.cat <- glmer(Resp ~ IntLevel + 
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + IntLevel|Listener) + (0 + IntLevel|Speaker),
+	(1 + IntLevel|Listener) + (1 + IntLevel|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 summary(int.cat.null <- glmer(Resp ~ 1 + 
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + IntLevel|Listener) + (0 + IntLevel|Speaker),
+	(1 + IntLevel|Listener) + (1 + IntLevel|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 anova(int.cat.null, int.cat, test = 'Chisq')
+
+## Look at model without listener slope (individual differences):
+
+summary(int.nolistenerslope <- glmer(Resp ~ int_c + 
+	LogRT_c +
+	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
+	(1|Listener) + (1 + int_c|Speaker) + (1|Item),
+	data = int, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+summary(int.nospeakerslope <- glmer(Resp ~ int_c + 
+	LogRT_c +
+	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
+	(1 + int_c|Listener) + (1|Speaker) + (1|Item),
+	data = int, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+
+## Compare:
+
+anova(int.nolistenerslope, int.mdl, test = 'Chisq')
+anova(int.nospeakerslope, int.mdl, test = 'Chisq')
+
+## Look at listener coefficients:
+
+coef(int.mdl)$Listener[ , 'int_c']
+sum(coef(int.mdl)$Listener[ , 'int_c'] > 0)
+sum(coef(int.mdl)$Listener[ , 'int_c'] < 0)
+
+## Save models:
+
+save.image('models_so_far.RData')
 
 
 
@@ -561,9 +624,7 @@ summary(both.massive <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:F0_c + SpeakerSex_c:F0_c + ListenerSex_c:SpeakerSex_c:F0_c + 
 	ListenerSex_c:int_c + SpeakerSex_c:int_c + ListenerSex_c:SpeakerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -574,9 +635,7 @@ summary(both.no3A <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:F0_c + SpeakerSex_c:F0_c + 
 	ListenerSex_c:int_c + SpeakerSex_c:int_c + ListenerSex_c:SpeakerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 summary(both.no3B <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
@@ -584,9 +643,7 @@ summary(both.no3B <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:F0_c + SpeakerSex_c:F0_c + ListenerSex_c:SpeakerSex_c:F0_c + 
 	ListenerSex_c:int_c + SpeakerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -602,9 +659,7 @@ summary(both.no3 <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:F0_c + SpeakerSex_c:F0_c +
 	ListenerSex_c:int_c + SpeakerSex_c:int_c +
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -615,9 +670,7 @@ summary(both.nospeakf0 <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:F0_c + 
 	ListenerSex_c:int_c + SpeakerSex_c:int_c +
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 summary(both.nolistf0 <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
@@ -625,9 +678,7 @@ summary(both.nolistf0 <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	SpeakerSex_c:F0_c +
 	ListenerSex_c:int_c + SpeakerSex_c:int_c +
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 summary(both.nospeakint <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
@@ -635,9 +686,7 @@ summary(both.nospeakint <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:F0_c + SpeakerSex_c:F0_c +
 	ListenerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 summary(both.nolistint <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
@@ -645,9 +694,7 @@ summary(both.nolistint <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:F0_c + SpeakerSex_c:F0_c +
 	SpeakerSex_c:int_c +
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -658,43 +705,51 @@ anova(both.nolistf0, both.no3, test = 'Chisq')
 anova(both.nospeakint, both.no3, test = 'Chisq')
 anova(both.nolistint, both.no3, test = 'Chisq')		# sig.
 
-## Main model:
+## Interaction model:
 
-summary(both.mdl <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
+summary(both.mdl.with.int <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
 	LogRT_c + Trial_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
-## Model without intensity / f0 interaction:
+## Main model with trial variable (causes convergence issues):
 
-summary(both.no2cond <- glmer(Resp ~ int_c + F0_c + 
+summary(both.withtrial <- glmer(Resp ~ int_c + F0_c + 
 	LogRT_c + Trial_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
 ## Test intensity / f0 interaction:
 
-anova(both.no2cond, both.mdl, test = 'Chisq')	# n.s.
+anova(both.withtrial, both.mdl.with.int, test = 'Chisq')	# n.s.
 
-## Model without spaker / listener sex interaction:
+## Main model without trial variable:
 
-summary(both.no2sex <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
-	LogRT_c + Trial_c + 
+summary(both.mdl <- glmer(Resp ~ int_c + F0_c + 
+	LogRT_c + 
+	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
+	ListenerSex_c:int_c + 
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
+	data = both, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+
+## Test trial effect:
+
+anova(both.mdl, both.withtrial, test = 'Chisq')
+
+## Model without speaker / listener sex interaction:
+
+summary(both.no2sex <- glmer(Resp ~ int_c + F0_c +
+	LogRT_c +
 	ListenerSex_c + SpeakerSex_c + 
 	ListenerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -704,12 +759,10 @@ anova(both.no2sex, both.mdl, test = 'Chisq')
 
 ## Model without listener sex - intensity interaction:
 
-summary(both.nosexint <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
-	LogRT_c + Trial_c + 
+summary(both.nosexint <- glmer(Resp ~ int_c + F0_c + 
+	LogRT_c +
 	ListenerSex_c + SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -719,20 +772,16 @@ anova(both.nosexint, both.no2sex, test = 'Chisq')
 
 ## Models without listener and speaker effects:
 
-summary(both.nolist <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
-	LogRT_c + Trial_c + 
+summary(both.nolist <- glmer(Resp ~ int_c + F0_c + 
+	LogRT_c +
 	SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
-summary(both.nospeak <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
-	LogRT_c + Trial_c + 
+summary(both.nospeak <- glmer(Resp ~ int_c + F0_c + 
+	LogRT_c +
 	ListenerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -743,52 +792,35 @@ anova(both.nospeak, both.nosexint, test = 'Chisq')
 
 ## Models without intensity / f0 effects:
 
-summary(both.noint <- glmer(Resp ~ F0_c + int_c:F0_c +
-	LogRT_c + Trial_c + 
+summary(both.noint <- glmer(Resp ~ F0_c +
+	LogRT_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
-summary(both.nof0 <- glmer(Resp ~ int_c + int_c:F0_c +
-	LogRT_c + Trial_c + 
+summary(both.nof0 <- glmer(Resp ~ int_c +
+	LogRT_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
 ## Tests of intensity / f0 effects:
 
-anova(both.nof0, both.mdl, test = 'Chisq')	# p = 0.09
+anova(both.nof0, both.mdl, test = 'Chisq')		# p = 0.09
 anova(both.noint, both.mdl, test = 'Chisq')	# p < 0.001
 
-## Models without RT and Trial:
+## Models without RT:
 
-summary(both.nort <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
-	Trial_c + 
+summary(both.nort <- glmer(Resp ~ int_c + F0_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
-	data = both, family = 'binomial',
-	control = glmerControl(optimizer = 'bobyqa')))
-summary(both.notrial <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
-	LogRT_c + 
-	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	ListenerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 anova(both.nort, both.mdl, test = 'Chisq')
-anova(both.notrial, both.mdl, test = 'Chisq')
 
 ## SANITY CHECK, main model categorical:
 
@@ -798,39 +830,31 @@ both <- mutate(both,
 contrasts(both$F0Level) <- contr.sum(3)
 contrasts(both$IntLevel) <- contr.sum(3)
 summary(both.mdl.cat <- glmer(Resp ~ F0Level + IntLevel + F0Level:IntLevel +
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + IntLevel|Listener) + (0 + IntLevel|Speaker) +
-	(0 + F0Level|Listener) + (0 + F0Level|Speaker),
+	(1 + IntLevel + F0Level|Listener) + (1 + IntLevel + F0Level|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 summary(both.mdl.cat.no2 <- glmer(Resp ~ F0Level + IntLevel + 
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + IntLevel|Listener) + (0 + IntLevel|Speaker) +
-	(0 + F0Level|Listener) + (0 + F0Level|Speaker),
+	(1 + IntLevel + F0Level|Listener) + (1 + IntLevel + F0Level|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 summary(both.mdl.cat.noint <- glmer(Resp ~ F0Level + 
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + IntLevel|Listener) + (0 + IntLevel|Speaker) +
-	(0 + F0Level|Listener) + (0 + F0Level|Speaker),
+	(1 + IntLevel + F0Level|Listener) + (1 + IntLevel + F0Level|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 summary(both.mdl.cat.nof0 <- glmer(Resp ~ IntLevel + 
-	LogRT_c + Trial_c + 
+	LogRT_c +
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + IntLevel|Listener) + (0 + IntLevel|Speaker) +
-	(0 + F0Level|Listener) + (0 + F0Level|Speaker),
+	(1 + IntLevel + F0Level|Listener) + (1 + IntLevel + F0Level|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
@@ -847,6 +871,60 @@ xpred <- data.frame(ListenerSex_c = rep(c(-0.5, 0.5), each = 3),
 	SpeakerSex_c = 0)
 xpred$Resp <- predict(both.mdl, newdata = xpred, re.form = NA)
 xpred$Resp <- plogis(xpred$Resp)
+
+## Look at model without random slopes for f0 (individual differences) :
+
+summary(both.nof0speakerslope <- glmer(Resp ~ int_c + F0_c +
+	LogRT_c + 
+	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
+	ListenerSex_c:int_c + 
+	(1 + int_c + F0_c|Listener) + (1 + int_c|Speaker) + (1|Item),
+	data = both, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+summary(both.nof0listenerslope <- glmer(Resp ~ int_c + F0_c +
+	LogRT_c + 
+	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
+	ListenerSex_c:int_c + 
+	(1 + int_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
+	data = both, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+
+## Look at model without random slopes for int (individual differences) :
+
+summary(both.nointspeakerslope <- glmer(Resp ~ int_c + F0_c +
+	LogRT_c + 
+	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
+	ListenerSex_c:int_c + 
+	(1 + int_c + F0_c|Listener) + (1 + F0_c|Speaker) + (1|Item),
+	data = both, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+summary(both.nointlistenerslope <- glmer(Resp ~ int_c + F0_c +
+	LogRT_c + 
+	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
+	ListenerSex_c:int_c + 
+	(1 + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
+	data = both, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+
+summary(both.nointslope <- glmer(Resp ~ int_c + F0_c +
+	LogRT_c + Trial_c + 
+	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
+	ListenerSex_c:int_c + 
+	(1 + int_c + F0_c|Listener) + (1 + int_c + F0_c|Speaker) + (1|Item),
+	data = both, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+
+## Look at listener coefficients:
+
+coef(both.mdl)$Listener[ , c('F0_c', 'int_c')]
+sum(coef(both.mdl)$Listener[ , 'F0_c'] > 0)
+sum(coef(both.mdl)$Listener[ , 'F0_c'] < 0)
+sum(coef(both.mdl)$Listener[ , 'int_c'] > 0)
+sum(coef(both.mdl)$Listener[ , 'int_c'] < 0)
+
+## Save models:
+
+save.image('models_so_far.RData')
 
 
 
@@ -875,13 +953,13 @@ both %>% group_by(IntLevel) %>%
 ## Create dataframe for getting predictions:
 
 f0.pred <- data.frame(F0_c = c(-2, -1, 0, 1, 2),
-	ListenerSex_c = 0, SpeakerSex_c = 0, Resp = 0)
+	ListenerSex_c = 0, SpeakerSex_c = 0, LogRT_c = 0, Resp = 0)
 int.pred <- data.frame(int_c = c(-2, -1, 0, 1, 2),
-	ListenerSex_c = 0, SpeakerSex_c = 0, Resp = 0)
+	ListenerSex_c = 0, SpeakerSex_c = 0, LogRT_c = 0, Resp = 0)
 both.pred.int <- data.frame(int_c = c(-2, -1, 0, 1, 2),
-	F0_c = rep(0, 5), ListenerSex_c = 0, SpeakerSex_c = 0, Resp = 0)
+	F0_c = rep(0, 5), ListenerSex_c = 0, SpeakerSex_c = 0, LogRT_c = 0, Resp = 0)
 both.pred.f0 <- data.frame(F0_c = c(-2, -1, 0, 1, 2),
-	int_c = rep(0, 5), ListenerSex_c = 0, SpeakerSex_c = 0, Resp = 0)
+	int_c = rep(0, 5), ListenerSex_c = 0, SpeakerSex_c = 0, LogRT_c = 0, Resp = 0)
 
 ## Extract model matrices for standard errors:
 
@@ -936,7 +1014,7 @@ gender.pred <- data.frame(int_c = 0,
 	F0_c = 0,
 	ListenerSex_c = c(-0.5, -0.5, 0.5, 0.5),
 	SpeakerSex_c = c(-0.5, 0.5, -0.5, 0.5),
-	Resp = 0)
+	LogRT_c = 0, Resp = 0)
 
 ## Loop through to create predictions:
 
@@ -1219,131 +1297,175 @@ box(lwd = 2)
 ## Raw f0 and intensity analysis:
 ##------------------------------------------------------------------
 
+## Calculate z-scores to compare effects:
+
+f0 <- mutate(f0,
+	f0mn_z2 = (f0mn_z - mean(f0mn_z)) / sd (f0mn_z))
+int <- mutate(int,
+	f0mn_z2 = (f0mn_z - mean(f0mn_z)) / sd (f0mn_z),
+	inmn_z2 = (inmn_z - mean(inmn_z)) / sd (inmn_z))
+both <- mutate(both,
+	f0mn_z2 = (f0mn_z - mean(f0mn_z)) / sd (f0mn_z),
+	inmn_z2 = (inmn_z - mean(inmn_z)) / sd (inmn_z))
+
 ## Experiment 1, raw F0 effect:
 
-summary(f0.raw <- glmer(Resp ~ f0mn + Trial_c + LogRT_c + 
+summary(f0.raw <- glmer(Resp ~ f0mn_z2 + LogRT_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + f0mn|Listener) + (0 + f0mn|Speaker),
+	(1 + f0mn_z2|Listener) + (1 + f0mn_z2|Speaker) + (1|Item),
 	data = f0, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
-summary(f0.raw.null <- glmer(Resp ~ Trial_c + LogRT_c + 
+summary(f0.raw.null <- glmer(Resp ~ LogRT_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + f0mn|Listener) + (0 + f0mn|Speaker),
+	(1 + f0mn_z2|Listener) + (1 + f0mn_z2|Speaker) + (1|Item),
 	data = f0, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 anova(f0.raw.null, f0.raw, test = 'Chisq')
 
 ## Experiment 2, raw intensity effect:
 
-summary(int.raw <- glmer(Resp ~ inmn + Trial_c + LogRT_c + 
+summary(int.raw <- glmer(Resp ~ inmn_z2 + LogRT_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + inmn|Listener) + (0 + inmn|Speaker),
+	(1 + inmn_z2|Listener) + (1 + inmn_z2|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
-summary(int.raw.null <- glmer(Resp ~ Trial_c + LogRT_c + 
+summary(int.raw.null <- glmer(Resp ~ LogRT_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + inmn|Listener) + (0 + inmn|Speaker),
+	(1 + inmn_z2|Listener) + (1 + inmn_z2|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 anova(int.raw.null, int.raw, test = 'Chisq')
 
 ## Experiment 2, raw f0 effect:
 
-summary(int.raw.f0 <- glmer(Resp ~ f0mn + Trial_c + LogRT_c + 
+summary(int.raw.f0 <- glmer(Resp ~ f0mn_z2 + LogRT_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + f0mn|Listener) + (0 + f0mn|Speaker),
+	(1 + f0mn_z2|Listener) + (1 + f0mn_z2|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
-summary(int.raw.f0.null <- glmer(Resp ~ Trial_c + LogRT_c + 
+summary(int.raw.f0.null <- glmer(Resp ~ LogRT_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + f0mn|Listener) + (0 + f0mn|Speaker),
+	(1 + f0mn_z2|Listener) + (1 + f0mn_z2|Speaker) + (1|Item),
 	data = int, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 anova(int.raw.f0.null, int.raw.f0, test = 'Chisq')
 
 ## Experiment 3, raw intensity effect:
 
-summary(both.int.raw <- glmer(Resp ~ inmn + Trial_c + LogRT_c + 
+summary(both.int.raw <- glmer(Resp ~ inmn_z2 + LogRT_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + inmn|Listener) + (0 + inmn|Speaker),
+	(1 + inmn_z2|Listener) + (1 + inmn_z2|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
-summary(both.int.raw.null <- glmer(Resp ~ Trial_c + LogRT_c + 
+summary(both.int.raw.null <- glmer(Resp ~ LogRT_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + inmn|Listener) + (0 + inmn|Speaker),
+	(1 + inmn_z2|Listener) + (1 + inmn_z2|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 anova(both.int.raw.null, both.int.raw, test = 'Chisq')
 
 ## Experiment 3, raw f0 effect:
 
-summary(both.f0.raw <- glmer(Resp ~ f0mn + Trial_c + LogRT_c + 
+summary(both.f0.raw <- glmer(Resp ~ f0mn_z2 + LogRT_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + f0mn|Listener) + (0 + f0mn|Speaker),
+	(1 + f0mn_z2|Listener) + (1 + f0mn_z2|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
-summary(both.f0.raw.null <- glmer(Resp ~ Trial_c + LogRT_c + 
+summary(both.f0.raw.null <- glmer(Resp ~ LogRT_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + f0mn|Listener) + (0 + f0mn|Speaker),
+	(1 + f0mn_z2|Listener) + (1 + f0mn_z2|Speaker) + (1|Item),
 	data = both, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 anova(both.f0.raw.null, both.f0.raw, test = 'Chisq')
 
+## Save models:
+
+save.image('models_so_far.RData')
+
+
 
 
 ##------------------------------------------------------------------
-## Exploratory analysis predicting responses:
+## Meta-analysis of gender differences and f0 effect across experiments:
 ##------------------------------------------------------------------
 
-## Define formula used across everything:
+## Create unique listener identifiers:
 
-uber_formula <- as.formula('Resp ~ f0mn + inmn + f0sd + inrange +
-	jitter + shimmer + HNR + H1H2 + dur')
+f0 <- mutate(f0,
+	Listener2 = paste0('f0.', Listener))
+int <- mutate(int,
+	Listener2 = paste0('int.', Listener))
+both <- mutate(both,
+	Listener2 = paste0('both.', Listener))
 
-## Set random forest parameters:
+## Select all:
 
-data.controls <- cforest_unbiased(ntree = 2000, 
-	mtry = 3)	## 2,000 trees with 3 variables each (square root of k = 9 parameters)
+all <- select(f0, Listener2, LogRT_c, Resp, Item, Speaker,
+	ListenerSex_c, SpeakerSex_c, f0mn_z2)
+all <- rbind(all,
+	select(int, Listener2, LogRT_c, Resp, Item, Speaker,
+		ListenerSex_c, SpeakerSex_c, f0mn_z2))
+all <- rbind(all,
+	select(both, Listener2, LogRT_c, Resp, Item, Speaker,
+		ListenerSex_c, SpeakerSex_c, f0mn_z2))
 
-## Run the forests Experiment 1 (f0):
+## Model for cross-experiment gender interactions:
 
-set.seed(42)
-f0.forest <- cforest(uber_formula, f0, controls = data.controls)
-f0.forestpred <- predict(f0.forest)
-f0.varimp <- varimp(f0.forest, conditional = FALSE)		# conditional  =  F coz of missing values
+summary(cross.gender <- glmer(Resp ~ 
+	LogRT_c + 
+	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
+	(1|Listener) + (1|Speaker) + (1|Item),
+	data = both, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+summary(cross.gender.noint <- glmer(Resp ~ 
+	LogRT_c + 
+	ListenerSex_c + SpeakerSex_c + 
+	(1|Listener) + (1|Speaker) + (1|Item),
+	data = both, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+summary(cross.gender.noint.nolist <- glmer(Resp ~ 
+	LogRT_c + 
+	SpeakerSex_c + 
+	(1|Listener) + (1|Speaker) + (1|Item),
+	data = both, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+summary(cross.gender.noint.nospeak <- glmer(Resp ~ 
+	LogRT_c + 
+	ListenerSex_c + 
+	(1|Listener) + (1|Speaker) + (1|Item),
+	data = both, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
 
-## Run the forests Experiment 2 (int):
+## Likelihood ratio tests:
 
-set.seed(43)
-int.forest <- cforest(uber_formula, int, controls = data.controls)
-int.forestpred <- predict(int.forest)
-int.varimp <- varimp(int.forest, conditional = FALSE)		# conditional  =  F coz of missing values
+anova(cross.gender.noint, cross.gender, test = 'Chisq')	# p = .036
+anova(cross.gender.noint.nolist, cross.gender.noint, test = 'Chisq')		# listener gender
+anova(cross.gender.noint.nospeak, cross.gender.noint, test = 'Chisq')	# speaker gender
 
-## Run the forests Experiment 3 (f0 / int):
+## Get predictions for the interactions to understand:
 
-set.seed(44)
-both.forest <- cforest(uber_formula, both, controls = data.controls)
-both.forestpred <- predict(both.forest)
-both.varimp <- varimp(both.forest, conditional = FALSE)		# conditional  =  F coz of missing values
+cross.gender.pred <- data.frame(ListenerSex_c = c(-0.5, -0.5, 0.5, 0.5),
+	SpeakerSex_c = c(-0.5, 0.5, -0.5, 0.5),
+	LogRT_c = 0, Resp = 0)
+cross.gender.pred$Resp <- predict(cross.gender,
+	newdata = cross.gender.pred, re.form = NA)
+cross.gender.pred$Resp <- plogis(cross.gender.pred$Resp)
 
-save.image('analysis.RData')
+## Model for cross-experiment f0 effect:
 
-## Look at output:
-
-sort(f0.varimp)
-sort(int.varimp)
-sort(both.varimp)
-
+summary(cross.f0 <- glmer(Resp ~ f0mn_z2 + 
+	LogRT_c + 
+	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
+	(1|Listener) + (1|Speaker) + (1|Item),
+	data = both, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+summary(cross.f0.null <- glmer(Resp ~ 1 + 
+	LogRT_c + 
+	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
+	(1|Listener) + (1|Speaker) + (1|Item),
+	data = both, family = 'binomial',
+	control = glmerControl(optimizer = 'bobyqa')))
+anova(cross.f0.null, cross.f0)
 
 
 
@@ -1354,24 +1476,25 @@ sort(both.varimp)
 ## Main model for UO (Experiment 3B):
 
 summary(both.UO.mdl <- glmer(Resp ~ int_c + F0_c + int_c:F0_c +
-	LogRT_c + Trial_c + 
+	LogRT_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c + 
 	ListenerSex_c:int_c + 
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + int_c|Listener) + (0 + int_c|Speaker) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + F0_c|Listener) + (1 + F0_c|Speaker) + (1|Item),
 	data = both.UO, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 
 ## Main model for UO (Experiment 1B):
 
 summary(f0.UO.mdl <- glmer(Resp ~ F0_c + 
-	LogRT_c + Trial_c + 
+	LogRT_c + 
 	ListenerSex_c + SpeakerSex_c + ListenerSex_c:SpeakerSex_c +
-	(1|Listener) + (1|Speaker) + (1|Item) +
-	(0 + F0_c|Listener) + (0 + F0_c|Speaker),
+	(1 + F0_c|Listener) + (1 + F0_c|Speaker) + (1|Item),
 	data = f0.UO, family = 'binomial',
 	control = glmerControl(optimizer = 'bobyqa')))
 	# what's the problem with listener sex?
+
+## Save models:
+
+save.image('models_so_far.RData')
 
 
